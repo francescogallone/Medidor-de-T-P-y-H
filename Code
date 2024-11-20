@@ -1,0 +1,149 @@
+#include <SPI.h>
+#include <nRF24L01.h>
+#include <RF24.h>
+#include <LiquidCrystal.h>
+#include <DHT.h>
+#include <Wire.h>
+#include <Adafruit_BMP280.h>
+#include <printf.h>
+
+
+//Declaremos los pines CE y el CSN
+#define CE_TX1 9
+#define CSN_TX1 10
+#define BMP_SCK  (13)
+#define BMP_MISO (12)
+#define BMP_MOSI (11)
+#define BMP_CS   (10)
+#define DHTPIN 8
+#define DHTTYPE DHT11
+
+DHT dht(DHTPIN, DHTTYPE);
+ 
+Adafruit_BMP280 bmp;
+// Direcciones para la comunicación
+
+const byte addressTX1[5] = {'7','f','f','f','f'}; // Dirección del Transmisor 1
+
+
+//creamos el objeto radio (NRF24L01)
+RF24 radioTX1(CE_TX1, CSN_TX1); // Transmisor 
+
+//vector con los datos a enviar
+//float datos[3];
+float datos[4];
+
+LiquidCrystal lcd(2,3,4,5,6,7);
+void setup()
+{
+  //Inicializamos la pantalla LCD
+  lcd.begin(16,2);
+
+  //Inicializamos el puerto serie
+  Serial.begin(9600);
+  printf_begin();
+
+  //inicializamos el NRF24L01 (Antena WiFi)
+  while(!radioTX1.begin()) {
+    Serial.println("Error: Transmisor no responde.");
+    delay(2000);
+  }
+  delay(100);
+
+
+  // Cerramos todas las pipes
+  radioTX1.closeReadingPipe(0);
+  radioTX1.closeReadingPipe(1);
+  radioTX1.closeReadingPipe(2);
+  radioTX1.closeReadingPipe(3);
+  radioTX1.closeReadingPipe(4);
+  radioTX1.closeReadingPipe(5);
+
+  radioTX1.openWritingPipe(addressTX1); // Configurar dirección del receptor para Transmisor 1
+  radioTX1.setChannel(120);             // Canal 120
+  radioTX1.setPALevel(RF24_PA_HIGH);    // Potencia alta
+  radioTX1.setDataRate(RF24_1MBPS);   // Velocidad de datos 1 Mbps
+  radioTX1.setPayloadSize(32);          // Tamaño del payload
+  radioTX1.setAutoAck(true);           // Activar auto acknowledgment (Se puede desactivar para la prueba de solo transmision. Pero con la prueba transmision-recepcion es ideal que esté activado)
+  radioTX1.stopListening();             // Configurar como transmisor
+  Serial.println("Transmisor 1 configurado.");
+  delay(2000);
+
+  //Inicializamos BMP280 (Presión y Temperatura)
+  while ( !Serial ) delay(100);   // wait for native usb
+  Serial.println(F("BMP280 test"));
+  unsigned status;
+  status = bmp.begin(0x76);
+  if (!status) {
+    Serial.println(F("Could not find a valid BMP280 sensor, check wiring or "
+                      "try a different address!"));
+    Serial.print("SensorID was: 0x"); 
+    Serial.println(bmp.sensorID(),16);
+    Serial.print("        ID of 0xFF probably means a bad address, a BMP 180 or BMP 085\n");
+    Serial.print("   ID of 0x56-0x58 represents a BMP 280,\n");
+    Serial.print("        ID of 0x60 represents a BME 280.\n");
+    Serial.print("        ID of 0x61 represents a BME 680.\n");
+    while (1) delay(10);
+  }
+
+  /* Default settings from datasheet. */
+  bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,     /* Operating Mode. */
+                  Adafruit_BMP280::SAMPLING_X2,     /* Temp. oversampling */
+                  Adafruit_BMP280::SAMPLING_X16,    /* Pressure oversampling */
+                  Adafruit_BMP280::FILTER_X16,      /* Filtering. */
+                  Adafruit_BMP280::STANDBY_MS_500); /* Standby time. */
+
+//DHT11 (Humedad)
+dht.begin();
+
+
+ 
+}
+ 
+void loop()
+{
+  datos[0]=7.0;
+  datos[1]=bmp.readTemperature();
+  datos[2]=dht.readHumidity();
+  datos[3]=bmp.readPressure();
+  
+
+  bool ok = radioTX1.write(datos, sizeof(datos));
+  radioTX1.write(datos, sizeof(datos));
+  if (ok){
+  Serial.print(F("Temperatura = "));
+  Serial.print(datos[1]);
+  Serial.println(" °C");
+
+  Serial.print(F("Presion = "));
+  Serial.print(datos[3]);
+  Serial.println(" Pa");
+
+  Serial.print(F("Humedad = "));
+  Serial.print(datos[2]); 
+  Serial.println(" %");
+
+  Serial.println();
+
+  lcd.setCursor(0, 0);
+  lcd.print("T=");
+  lcd.print(bmp.readTemperature());
+  lcd.print("'C");
+  lcd.setCursor(10,0);
+  lcd.print(" H=");
+  lcd.print(int(dht.readHumidity()));
+  lcd.print("%");
+  lcd.setCursor(2, 1);
+  lcd.print("P=");
+  lcd.print(bmp.readPressure());
+  lcd.print("Pa");
+  }
+  else{
+      Serial.println("No envia datos");
+        lcd.setCursor(0, 0);
+        lcd.print(" No envia datos ");
+          lcd.setCursor(0, 1);
+        lcd.print("                ");
+  }
+  delay(2000);
+}
